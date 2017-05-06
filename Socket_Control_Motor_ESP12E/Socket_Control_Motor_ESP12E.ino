@@ -50,6 +50,36 @@ const uint8_t sm_pi_rightMotor = 40;
 const uint8_t sm_pi_midMotor = 50;
 const uint8_t sm_pi_speed = 60;
 
+// state machine left motor
+uint8_t sm_lm_state = 0;
+const uint8_t sm_lm_begin = 0;
+const uint8_t sm_lm_delay_0 = 5;
+const uint8_t sm_lm_delay_1 = 7;
+const uint8_t sm_lm_positive = 10;
+const uint8_t sm_lm_delay_2 = 15;
+const uint8_t sm_lm_delay_3 = 17;
+const uint8_t sm_lm_negative = 20;
+
+// state machine right motor
+uint8_t sm_rm_state = 0;
+const uint8_t sm_rm_begin = 0;
+const uint8_t sm_rm_delay_0 = 5;
+const uint8_t sm_rm_delay_1 = 7;
+const uint8_t sm_rm_positive = 10;
+const uint8_t sm_rm_delay_2 = 15;
+const uint8_t sm_rm_delay_3 = 17;
+const uint8_t sm_rm_negative = 20;
+
+// state machine middle motor
+uint8_t sm_mm_state = 0;
+const uint8_t sm_mm_begin = 0;
+const uint8_t sm_mm_delay_0 = 5;
+const uint8_t sm_mm_delay_1 = 7;
+const uint8_t sm_mm_positive = 10;
+const uint8_t sm_mm_delay_2 = 15;
+const uint8_t sm_mm_delay_3 = 17;
+const uint8_t sm_mm_negative = 20;
+
 char pi_buff[MAX_Buff_Length];
 uint8_t pi_bufferCount = 0;
 
@@ -70,13 +100,36 @@ bool midMotorUpdateFlag = false;
 unsigned long leftMotorTimer = 0;
 unsigned long rightMotorTimer = 0;
 unsigned long midMotorTimer = 0;
+unsigned long ledOffTimer = 0;
+unsigned long ledOnTimer = 0;
 
-uint8_t lMotorPin = 0;
-uint8_t rMotorPin = 2;
+unsigned long LMRTimer = 0; // left motor reverse timer,use to delay after reverse command come
+unsigned long RMRTimer = 0; // right motor reverse timer
+unsigned long MMRTimer = 0; // middle motor reverse timer
+
+bool leftMotorReverseFlag = false;
+bool rightMotorReverseFlag = false;
+bool middleMotorReverseFlag = false;
+
+/*
+uint8_t lMotorPin = 0;  // pin 0, ESPDuino ESP-13
+uint8_t rMotorPin = 2;  // pin 2
 uint8_t mMotorPin = 4;
+*/
+///*
+uint8_t lMotorPin = 5;  // pin 1, NodeMCU ESP-12E
+uint8_t rMotorPin = 4;  // pin 2
+uint8_t mMotorPin = 0;  // pin 3
+uint8_t camMotorPin = 2;  // pin 4
+uint8_t lMotorReversePin = 14;  // pin 5
+uint8_t rMotorReversePin = 12;  // pin 6
+uint8_t mMotorReversePin = 13;  // pin 7
+uint8_t tfRecordPin = 15;  // pin 8
+//*/
 
 void setup() {
-  //pinMode(LED_BUILTIN, OUTPUT); // initiallize LED
+  pinMode(LED_BUILTIN, OUTPUT); // initiallize LED
+  digitalWrite(LED_BUILTIN, LOW); // keep the LED on to indicate is in initializing step
   
   Serial.begin(115200); // initiallize serial for debug
   Serial.setDebugOutput(true);
@@ -95,26 +148,26 @@ void setup() {
   
   server.begin(); // start to run TCP server
   server.setNoDelay(true);
-  /*
-  Serial.println("121212");
-  pinMode(1, OUTPUT);
-  pinMode(13, OUTPUT); 
-  Serial.println("565656");
-  /*
-  pinMode(0, OUTPUT); 
-  pinMode(2, OUTPUT); 
-  pinMode(4, OUTPUT); 
-  pinMode(5, OUTPUT); 
-  */
-  analogWriteFreq(50);
+  
+  analogWriteFreq(60);  // set PWM frequence as 60hz
   pinMode(lMotorPin, OUTPUT); // initialize pin out is necessary, althought don't initialize still can use pwm function but that require pwm out put low and high to work
   pinMode(rMotorPin, OUTPUT); // if no initialization and directly use pwm to control will not get correct value
   pinMode(mMotorPin, OUTPUT);
+  
+  pinMode(camMotorPin, OUTPUT);
+  
+  pinMode(lMotorReversePin, OUTPUT);
+  pinMode(rMotorReversePin, OUTPUT);
+  pinMode(mMotorReversePin, OUTPUT);
+  pinMode(tfRecordPin, OUTPUT);
+
+  digitalWrite(LED_BUILTIN, HIGH); // turn LED off indicate initializing step is over
 }
 
 void loop() {
 
-  //digitalWrite(LED_BUILTIN, LOW); // when running, keep the LED on
+  LEDManager(); // manage LED
+  
   uint8_t i;  // "uint8_t" its shorthand for: a type of unsigned integer of length 8 bits
   
   // if client is connected in
@@ -145,10 +198,30 @@ void loop() {
       Socket_Communication (i); // monitor cache for incoming data and process it 
     }
   }
-  MotorCommandAutoReset ();
-  MotorControl ();
+  
+  MotorCommandAutoReset (); // auto reset motor command if motor not receiving command any more
+  
+  MotorControl ();  // move motor
 
   //DebugAndTest ();
+}
+
+void LEDManager ()
+{
+  int offResetTime = 1900; // the time for led to turn off
+  int onResetTime = 100;  // the time for led to turn on
+  
+  if (ledOffTimer == 0) ledOffTimer = millis(); // start countting led turnning off time
+  if (TimeCounter (ledOffTimer, offResetTime))  // time is over
+  {
+    digitalWrite(LED_BUILTIN, LOW); // turn on LED
+    if (ledOnTimer == 0)  ledOnTimer = millis();  // start countting led turnning on time
+    if (TimeCounter (ledOnTimer, onResetTime))  // timer is over
+    {
+      digitalWrite(LED_BUILTIN, HIGH); // turn off LED
+      ledOnTimer = ledOffTimer = 0; // reset timer
+    }
+  }
 }
 
 void Socket_Communication (int _clientNum)
@@ -356,8 +429,6 @@ void Socket_Communication (int _clientNum)
   }
 }
 
-
-
 void ProcessIncoming_ContentExtract (int _clientNum) // extract data from incoming message before break mark
 {
   ProcessContentResult* _cResult = &PCResult;
@@ -383,9 +454,9 @@ void ProcessIncoming_ContentExtract (int _clientNum) // extract data from incomi
     }
     pi_buff[pi_bufferCount] = _num;
     pi_bufferCount ++;
-    if (pi_bufferCount > 5)
+    if (pi_bufferCount > 7)
     {
-      _cResult->err = true; // if content get more then 5 letter
+      _cResult->err = true; // if content get more then 7 letter
       CleanPIBuff ();
       return;
     }
@@ -397,14 +468,17 @@ void ProcessIncoming_ContentExtract (int _clientNum) // extract data from incomi
   Serial.println("PI content error: Error occured, content process unexpected failed");
   */
 }
+
 void ResetMotorFlag ()
 {
   leftMotorUpdateFlag = rightMotorUpdateFlag = midMotorUpdateFlag = false;
 }
+
 void CleanCommandTemp ()
 {
   leftMotorTemp = rightMotorTemp = midMotorTemp = speedTemp = -999;  // clean temp stroge valuable
 }
+
 void CleanPISturct () 
 {
   PCResult = ProcessContentResult ();  //reset structure
@@ -477,77 +551,33 @@ void MotorCommandAutoReset ()
 
 void MotorControl ()
 {
-  //Serial.print("LLLLLLLL:      ");
-  //Serial.println(1023 * (float(leftMotorCommand * speedCommand)/10000));
-  analogWrite(lMotorPin, 1023 * (float(leftMotorCommand * speedCommand)/10000)); // pin 0, PWM Speed Control left motor
+  // TopNum(150) * Command * Factor(11/15) + bottomNum(40)
+  // TopSpeed = 150 * 1 * 11/15 + 40 = 150
+  // BottomSpeed = 150 * 0 * 11/15 + 40 = 40
+  if (leftMotorCommand >= 0)  analogWrite(lMotorPin, (150.0 * (float(leftMotorCommand * speedCommand)/10000.0)) * (11.0/15.0) + 40.0); // pin 0, PWM Speed Control left motor
+  else if (leftMotorCommand < 0)  analogWrite(lMotorPin, (150.0 * (float(-leftMotorCommand * speedCommand)/10000.0)) * (11.0/15.0) + 40.0);
+  
+  if (rightMotorCommand >= 0)  analogWrite(rMotorPin, (150.0 * (float(rightMotorCommand * speedCommand)/10000.0)) * (11.0/15.0) + 40.0); // pin 2, PWM Speed Control right motor
+  else if (rightMotorCommand < 0)  analogWrite(lMotorPin, (150.0 * (float(-rightMotorCommand * speedCommand)/10000.0)) * (11.0/15.0) + 40.0);
 
-  //Serial.print("RRRRRRRR:      ");
-  //Serial.println(1023 * (float(rightMotorCommand * speedCommand)/10000));
-  analogWrite(rMotorPin, 1023 * (float(rightMotorCommand * speedCommand)/10000)); // pin 2, PWM Speed Control right motor
+  if (midMotorCommand >= 0)  analogWrite(mMotorPin, (150.0 * (float(midMotorCommand * speedCommand)/10000.0)) * (11.0/15.0) + 40.0); // pin 4, PWM Speed Control mid motor
+  else if (midMotorCommand < 0)  analogWrite(lMotorPin, (150.0 * (float(-midMotorCommand * speedCommand)/10000.0)) * (11.0/15.0) + 40.0);
 
-  analogWrite(mMotorPin, 1023 * (float(midMotorCommand * speedCommand)/10000)); // pin 4, PWM Speed Control mid motor
+  if (leftMotorReverseFlag)  digitalWrite(lMotorReversePin,HIGH);
+  else  digitalWrite(lMotorReversePin,LOW);
+}
+
+void LeftMontorControl (float _num)
+{
+  // TopNum(150) * Command * Factor(11/15) + bottomNum(40)
+  // TopSpeed = 150 * 1 * 11/15 + 40 = 150
+  // BottomSpeed = 150 * 0 * 11/15 + 40 = 40
+  analogWrite(lMotorPin, (150.0 * (float(_num * speedCommand)/10000.0)) * (11.0/15.0) + 40.0); // pin 0, PWM Speed Control left motor
 }
 
 void DebugAndTest ()
 {
-  //analogWriteFreq(50);
-  //analogWrite(0, 1023 * (float(speedCommand)/100)); // pin 0, PWM Speed Control
-  //Serial.println(1023 * (float(speedCommand)/100));
-  //Serial.println(speedCommand);
-  //Serial.println("1");
-  //pwm.setPWM(servoNum, 0, 102);
-  //delay(5000);
-  //Serial.println("2");
-  //pwm.setPWM(servoNum, 0, 512);
-  //delay(5000);
   
-  //digitalWrite(dir1,LOW);  // pin 1
-  //digitalWrite(dir2,HIGH);  // pin 13
-  //analogWrite(pwm1, 255); // pin 3, PWM Speed Control
-  //analogWrite(pwm2, 255); // pin 12 PWM Speed Control
-  /*
-  Serial.println("1");
-
-  digitalWrite(1,HIGH);  // pin 1
-  analogWrite(3, 1023); // pin 3, PWM Speed Control
-  digitalWrite(13,HIGH);  // pin 13
-  analogWrite(12, 1023); // pin 12 PWM Speed Control
-  delay(5000);
-  Serial.println("2");
-  digitalWrite(1,HIGH);  // pin 1
-  analogWrite(3, 0); // pin 3, PWM Speed Control
-  digitalWrite(13,LOW);  // pin 13
-  analogWrite(12, 0); // pin 12 PWM Speed Control
-  delay(5000);
-
-  /*
-  Serial.println("1");
-  analogWrite(0, 0);
-  analogWrite(2, 255);
-  analogWrite(4, 768);
-  analogWrite(5, 1023);
-  delay(5000);
-  Serial.println("2");
-  analogWrite(0, 1023);
-  analogWrite(2, 768);
-  analogWrite(4, 255);
-  analogWrite(5, 0);
-  delay(5000);
-  */
-  /*
-  Serial.println("1");
-  digitalWrite(0, HIGH);
-  digitalWrite(2, LOW);
-  digitalWrite(4, HIGH);
-  digitalWrite(5, LOW);
-  delay(5000);
-  Serial.println("2");
-  digitalWrite(0, LOW);
-  digitalWrite(2, HIGH);
-  digitalWrite(4, LOW);
-  digitalWrite(5, HIGH);
-  delay(5000);
-  */
 }
 
 // use to calculate how long past after previous time
