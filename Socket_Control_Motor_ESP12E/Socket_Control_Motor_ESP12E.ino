@@ -246,7 +246,7 @@ void ResetMotor () // control servo motor to move cam
     else analogWrite(rMotorPin, 77.3388);
     
     if (resetMid == true) analogWrite(mMotorPin, 103); // pin 2, PWM Speed Control mid motor
-    else analogWrite(mMotorPin, 76);
+    else analogWrite(mMotorPin, 77.3388);
 }
 
 void ServoMotorControl () // control servo motor to move cam
@@ -696,7 +696,7 @@ void MotorControl ()
   
   analogWrite(rMotorPin, (25.6612 * (float(rightMotorCommand * speedCommand)/10000.0)) + 77.3388); // pin 2, PWM Speed Control right motor
 
-  analogWrite(mMotorPin, (27.0 * (float(midMotorCommand * speedCommand)/10000.0)) + 76.0); // pin 4, PWM Speed Control mid motor
+  analogWrite(mMotorPin, (25.6612 * (float(midMotorCommand * speedCommand)/10000.0)) + 77.3388); // pin 4, PWM Speed Control mid motor
 }
 
 void LeftMontorControl (float _num)
